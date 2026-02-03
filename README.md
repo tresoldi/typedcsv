@@ -5,7 +5,7 @@ Typed CSVs via **header-embedded types** (sigils or `:type`) plus optional **hea
 The core lives in a single module and is copy-pasteable into projects.
 
 ```bash
-pip install typedcsv
+pip install typedcsv-lib
 ```
 
 ---
