@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "typedcsv-lib"
-version = "0.1.0"
+version = "0.2.0"
 description = "Typed CSVs via header-embedded types and validators"
 readme = "README.md"
 requires-python = ">=3.10"

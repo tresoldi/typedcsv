@@ -110,7 +110,7 @@ DEFAULT_TYPE_DIALECT = DEFAULT
 _EXPLICIT_TYPES: Tuple[TypeName, ...] = ("int", "float", "str", "bool", "datetime")
 _MODIFIER_SIGILS = {"!", "+"}
 _FLAG_VALIDATORS = {"required", "unique"}
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 # ----------------------------
