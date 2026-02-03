@@ -105,6 +105,65 @@ def test_re_fullmatch_for_str():
         next(r)
 
 
+def test_required_sigils_reject_missing():
+    text = "age#!\n\n"
+    with pytest.raises(typedcsv.TypedCSVError) as exc:
+        read_rows(text)
+    assert "Missing value not allowed" in str(exc.value)
+
+
+def test_required_validator_rejects_missing():
+    text = "age:int [required]\n\n"
+    with pytest.raises(typedcsv.TypedCSVError) as exc:
+        read_rows(text)
+    assert "Missing value not allowed" in str(exc.value)
+
+
+def test_unique_sigils_enforce_uniqueness():
+    text = "id#+\n1\n1\n"
+    f = io.StringIO(text)
+    r = typedcsv.reader(f)
+    assert next(r)[0] == 1
+    with pytest.raises(typedcsv.TypedCSVError):
+        next(r)
+
+
+def test_unique_validator_enforce_uniqueness():
+    text = "id:int [unique]\n1\n1\n"
+    f = io.StringIO(text)
+    r = typedcsv.reader(f)
+    assert next(r)[0] == 1
+    with pytest.raises(typedcsv.TypedCSVError):
+        next(r)
+
+
+def test_unique_allows_multiple_missing():
+    text = "id#+\n\n\n"
+    rows = read_rows(text)
+    assert rows[0][0] is None
+    assert rows[1][0] is None
+
+
+def test_flag_validators_are_flag_only():
+    text = "age:int [required=true]\n1\n"
+    with pytest.raises(typedcsv.TypedCSVError) as exc:
+        read_rows(text)
+    assert "flag-only" in str(exc.value)
+
+
+def test_any_order_sigils_are_accepted():
+    text = "id!+#\n1\n"
+    rows = read_rows(text)
+    assert rows[0][0] == 1
+
+
+def test_modifiers_with_explicit_type_are_rejected():
+    text = "id:int+\n1\n"
+    with pytest.raises(typedcsv.TypedCSVError) as exc:
+        read_rows(text)
+    assert "modifiers with explicit type" in str(exc.value)
+
+
 def test_error_context_fields_for_parse_error():
     text = "age#\nnope\n"
     with pytest.raises(typedcsv.TypedCSVError) as exc:

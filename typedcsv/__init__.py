@@ -6,12 +6,15 @@ Contract (v0):
 - Suffix sigils OR explicit ":type" (not both).
 - Suffix-only sigils:
     # -> int, % -> float, ? -> bool, @ -> datetime, $ -> str
+  Constraint sigils (suffix, after type sigil): ! -> required, + -> unique
   Explicit types: :int, :float, :bool, :datetime, :str
 - Untyped defaults to str.
 - Validators: optional bracket clause after the type marker:
     col# [min=0 max=10]
     col:str [in=A|B|C]
     col$ [re=^[A-Z]{3}\\d{2}$]
+    col:str [required unique]
+  Flag-only validators: required, unique.
   Parsed as space-separated key=value pairs inside [ ... ].
   Values with spaces must be double-quoted.
   "re=" uses re.fullmatch.
@@ -19,6 +22,7 @@ Contract (v0):
     str columns -> "" (kept)
     non-str columns -> None
   Missing values skip validation.
+  required rejects missing values; unique ignores missing values.
 - Errors: raise immediately with TypedCSVError including row/col/context.
 - Writing: None -> "", bool -> true/false, datetime -> isoformat(), float -> repr(f),
   header preserved exactly as provided to DictWriter(fieldnames).
@@ -104,6 +108,8 @@ DEFAULT = TypeDialect()
 DEFAULT_TYPE_DIALECT = DEFAULT
 
 _EXPLICIT_TYPES: Tuple[TypeName, ...] = ("int", "float", "str", "bool", "datetime")
+_MODIFIER_SIGILS = {"!", "+"}
+_FLAG_VALIDATORS = {"required", "unique"}
 __version__ = "0.1.0"
 
 
@@ -193,42 +199,54 @@ def parse_validators(
 
     i = skip_ws(i)
     while i < n:
-        eq = inner.find("=", i)
-        if eq == -1:
-            raise TypedCSVError(
-                row=row, col=col, column=column, header=header, value="",
-                reason=f"Invalid validator token (missing '=') near: {inner[i:]!r}"
-            )
-        key = inner[i:eq].strip()
+        start = i
+        while i < n and not inner[i].isspace() and inner[i] != "=":
+            i += 1
+        key = inner[start:i].strip()
         if not key:
             raise TypedCSVError(
                 row=row, col=col, column=column, header=header, value="",
-                reason=f"Invalid validator key near: {inner[i:]!r}"
-            )
-        j = eq + 1
-        if j >= n:
-            raise TypedCSVError(
-                row=row, col=col, column=column, header=header, value="",
-                reason=f"Validator {key!r} missing value"
+                reason=f"Invalid validator key near: {inner[start:]!r}"
             )
 
-        if inner[j] == '"':
-            j += 1
-            start = j
-            while j < n and inner[j] != '"':
-                j += 1
-            if j >= n:
+        value = ""
+        if i < n and inner[i] == "=":
+            i += 1
+            if i >= n:
                 raise TypedCSVError(
                     row=row, col=col, column=column, header=header, value="",
-                    reason=f"Unterminated quote in validator {key!r}"
+                    reason=f"Validator {key!r} missing value"
                 )
-            value = inner[start:j]
-            j += 1
+
+            if inner[i] == '"':
+                i += 1
+                start = i
+                while i < n and inner[i] != '"':
+                    i += 1
+                if i >= n:
+                    raise TypedCSVError(
+                        row=row, col=col, column=column, header=header, value="",
+                        reason=f"Unterminated quote in validator {key!r}"
+                    )
+                value = inner[start:i]
+                i += 1
+            else:
+                start = i
+                while i < n and not inner[i].isspace():
+                    i += 1
+                value = inner[start:i]
         else:
-            start = j
-            while j < n and not inner[j].isspace():
-                j += 1
-            value = inner[start:j]
+            if key not in _FLAG_VALIDATORS:
+                raise TypedCSVError(
+                    row=row, col=col, column=column, header=header, value="",
+                    reason=f"Invalid validator token (missing '=') near: {inner[start:]!r}"
+                )
+
+        if key in _FLAG_VALIDATORS and value != "":
+            raise TypedCSVError(
+                row=row, col=col, column=column, header=header, value="",
+                reason=f"Validator {key!r} must be flag-only"
+            )
 
         if key in out:
             raise TypedCSVError(
@@ -237,7 +255,7 @@ def parse_validators(
             )
         out[key] = value
 
-        i = skip_ws(j)
+        i = skip_ws(i)
 
     return out
 
@@ -257,9 +275,18 @@ def parse_header_cell(cell: str, td: TypeDialect, *, row: int, col: int) -> Colu
     used_explicit = False
     used_sigil = False
     type_name: TypeName = "str"
+    modifier_unique = False
+    modifier_required = False
 
     if td.explicit_sep in base:
         name_part, type_part = base.rsplit(td.explicit_sep, 1)
+        if any(c in _MODIFIER_SIGILS for c in type_part):
+            stripped = type_part.rstrip("".join(_MODIFIER_SIGILS))
+            if stripped in _EXPLICIT_TYPES and all(c in _MODIFIER_SIGILS for c in type_part[len(stripped):]):
+                raise TypedCSVError(
+                    row=row, col=col, column="", header=raw_header, value="",
+                    reason="Header uses modifiers with explicit type (not allowed)"
+                )
         if type_part not in _EXPLICIT_TYPES:
             raise TypedCSVError(
                 row=row, col=col, column="", header=raw_header, value="",
@@ -271,11 +298,30 @@ def parse_header_cell(cell: str, td: TypeDialect, *, row: int, col: int) -> Colu
     else:
         base_name = base
 
-    if not used_explicit and base_name and base_name[-1] in td.sigils:
-        used_sigil = True
-        sig = base_name[-1]
-        type_name = td.sigils[sig]
-        base_name = base_name[:-1].rstrip()
+    if not used_explicit and base_name:
+        allowed_tail = set(td.sigils) | _MODIFIER_SIGILS
+        i = len(base_name)
+        while i > 0 and base_name[i - 1] in allowed_tail:
+            i -= 1
+        tail = base_name[i:]
+        if tail:
+            type_sigils = [c for c in tail if c in td.sigils]
+            if len(type_sigils) > 1:
+                raise TypedCSVError(
+                    row=row, col=col, column="", header=raw_header, value="",
+                    reason="Header uses multiple type sigils (not allowed)"
+                )
+            if len(type_sigils) == 1:
+                used_sigil = True
+                type_name = td.sigils[type_sigils[0]]
+                modifier_unique = "+" in tail
+                modifier_required = "!" in tail
+                base_name = base_name[:i].rstrip()
+            else:
+                raise TypedCSVError(
+                    row=row, col=col, column="", header=raw_header, value="",
+                    reason="Header uses modifiers without a type sigil"
+                )
 
     if used_explicit and base_name and base_name[-1] in td.sigils:
         raise TypedCSVError(
@@ -288,6 +334,11 @@ def parse_header_cell(cell: str, td: TypeDialect, *, row: int, col: int) -> Colu
             row=row, col=col, column="", header=raw_header, value="",
             reason="Header uses both explicit type and sigil (not allowed)"
         )
+    if used_explicit and base_name and base_name[-1] in _MODIFIER_SIGILS:
+        raise TypedCSVError(
+            row=row, col=col, column="", header=raw_header, value="",
+            reason="Header uses modifiers with explicit type (not allowed)"
+        )
 
     name = base_name.strip()
     if not name:
@@ -299,6 +350,20 @@ def parse_header_cell(cell: str, td: TypeDialect, *, row: int, col: int) -> Colu
     validators: Dict[str, str] = {}
     if vtext is not None:
         validators = parse_validators(vtext, td, row=row, col=col, column=name, header=raw_header)
+    if modifier_unique:
+        if "unique" in validators:
+            raise TypedCSVError(
+                row=row, col=col, column=name, header=raw_header, value="",
+                reason="Duplicate validator key: 'unique'"
+            )
+        validators["unique"] = ""
+    if modifier_required:
+        if "required" in validators:
+            raise TypedCSVError(
+                row=row, col=col, column=name, header=raw_header, value="",
+                reason="Duplicate validator key: 'required'"
+            )
+        validators["required"] = ""
 
     parser, formatter = _get_type_codec(type_name, td)
     _validate_validator_keys(type_name, validators, td, row=row, col=col, column=name, header=raw_header)
@@ -368,11 +433,11 @@ def _get_type_codec(type_name: TypeName, td: TypeDialect) -> Tuple[Callable[[str
 # ----------------------------
 
 _ALLOWED_VALIDATORS: Dict[TypeName, Tuple[str, ...]] = {
-    "int": ("min", "max", "in"),
-    "float": ("min", "max", "in"),
-    "str": ("minlen", "maxlen", "in", "re"),
-    "datetime": ("min", "max"),
-    "bool": tuple(),
+    "int": ("min", "max", "in", "required", "unique"),
+    "float": ("min", "max", "in", "required", "unique"),
+    "str": ("minlen", "maxlen", "in", "re", "required", "unique"),
+    "datetime": ("min", "max", "required", "unique"),
+    "bool": ("required", "unique"),
 }
 
 
@@ -467,6 +532,11 @@ def _validate_value(spec: ColumnSpec, value: Any, *, row: int, col: int, td: Typ
 
 def _parse_cell(spec: ColumnSpec, raw: str, *, row: int, col: int, td: TypeDialect) -> Any:
     if raw == "":
+        if "required" in spec.validators:
+            raise TypedCSVError(
+                row=row, col=col, column=spec.name, header=spec.raw_header, value=raw,
+                reason="Missing value not allowed"
+            )
         if spec.type_name == "str":
             return ""
         return None
@@ -584,6 +654,11 @@ class TypedReader:
             self._buffer = []
 
         self._row_index = 1
+        self._unique_cols = {
+            idx for idx, spec in enumerate(self.schema.columns)
+            if "unique" in spec.validators
+        }
+        self._unique_sets: Dict[int, set] = {idx: set() for idx in self._unique_cols}
 
     def __iter__(self) -> "TypedReader":
         return self
@@ -605,7 +680,16 @@ class TypedReader:
         out: List[Any] = []
         for j, spec in enumerate(self.schema.columns):
             raw = row[j] if j < len(row) else ""
-            out.append(_parse_cell(spec, raw, row=self._row_index, col=j, td=self._td))
+            value = _parse_cell(spec, raw, row=self._row_index, col=j, td=self._td)
+            if j in self._unique_cols and raw != "":
+                seen = self._unique_sets[j]
+                if value in seen:
+                    raise TypedCSVError(
+                        row=self._row_index, col=j, column=spec.name, header=spec.raw_header, value=raw,
+                        reason="Duplicate value in unique column"
+                    )
+                seen.add(value)
+            out.append(value)
         return out
 
 

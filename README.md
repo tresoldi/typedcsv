@@ -28,6 +28,21 @@ Declare types using either **suffix sigils** or **explicit `:type`** (not both o
 
 Untyped columns default to `str`.
 
+Optional **constraint sigils** (suffix, after the type sigil):
+
+| Constraint | Sigil |
+|------------|-------|
+| required   | `!`   |
+| unique     | `+`   |
+
+Order is flexible, but the recommended style is: `type` + optional `unique` + optional `required`.
+
+Examples:
+
+- `id#+` (unique int)
+- `email$!` (required str)
+- `slug$+!` (unique + required str)
+
 **Logical column names** are the header names with the type marker removed:
 
 - `age#` becomes key `"age"`
@@ -45,11 +60,13 @@ ratio% [min=0 max=1]
 status$ [in=OPEN|CLOSED|PENDING]
 code$ [re=^[A-Z]{3}\d{2}$]
 created@ [min=2020-01-01T00:00:00 max=2030-12-31T23:59:59]
+email:str [required unique]
 ```
 
 Notes:
 
 - Validators are space-separated `key=value` pairs inside `[ ... ]`.
+- `required` and `unique` are **flag-only** validators (no `=`).
 - `re=` uses Python `re.fullmatch`.
 - `in=` uses `|` as separator.
 - Unknown validator keys raise an error.
@@ -62,6 +79,8 @@ Notes:
 - For `str` columns, missing stays `""`.
 - For non-`str` columns, missing becomes `None`.
 - Missing values skip validation.
+- `required` (sigil `!` or validator) rejects missing values.
+- `unique` ignores missing values (multiple empty cells are allowed).
 
 ---
 
