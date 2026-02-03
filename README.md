@@ -6,6 +6,10 @@
 
 Typed CSVs via **header-embedded types** (sigils or `:type`) plus optional **header-embedded validation** — **stdlib-only**, Python **3.10+**.
 
+Default extensions (by convention):
+- `.tcsv` for comma-separated typed CSV
+- `.ttsv` for tab-separated typed TSV
+
 The core lives in a single module and is copy-pasteable into projects.
 
 ```bash
@@ -89,7 +93,7 @@ Notes:
 ```python
 import typedcsv
 
-with open("data.csv", newline="") as f:
+with open("data.tcsv", newline="") as f:
     for row in typedcsv.DictReader(f):
         print(row)
 ```
@@ -128,7 +132,7 @@ rows = [
     {"id": 2, "name": "Bob", "active": False, "created": None},
 ]
 
-with open("out.csv", "w", newline="") as f:
+with open("out.tcsv", "w", newline="") as f:
     w = typedcsv.DictWriter(f, fieldnames=["id#", "name$", "active?", "created@"])
     w.writeheader()
     w.writerows(rows)

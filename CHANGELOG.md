@@ -6,3 +6,4 @@
 - Header-embedded typing and validators.
 - Typed readers and writers compatible with `csv` API.
 - Pytest tests, ruff, and mypy configs.
+- Document default filename conventions: `.tcsv` (comma) and `.ttsv` (tab).
