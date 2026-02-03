@@ -1,5 +1,9 @@
 # typedcsv
 
+[![PyPI version](https://img.shields.io/pypi/v/typedcsv-lib.svg)](https://pypi.org/project/typedcsv-lib/)
+[![Python versions](https://img.shields.io/pypi/pyversions/typedcsv-lib.svg)](https://pypi.org/project/typedcsv-lib/)
+[![License](https://img.shields.io/pypi/l/typedcsv-lib.svg)](https://pypi.org/project/typedcsv-lib/)
+
 Typed CSVs via **header-embedded types** (sigils or `:type`) plus optional **header-embedded validation** — **stdlib-only**, Python **3.10+**.
 
 The core lives in a single module and is copy-pasteable into projects.
